@@ -1,0 +1,55 @@
+{
+  "name": "datareader-excel",
+  "version": "0.1.0",
+  "description": "Correct, zero-dependency Excel .xlsx/.xlsm reader for the browser and Node.",
+  "license": "MIT",
+  "author": "everydaydesign",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "xlsx",
+    "xlsm",
+    "excel",
+    "ooxml",
+    "spreadsheet",
+    "reader",
+    "parser",
+    "browser",
+    "data",
+    "datareader"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/everydaydesign/datareader-excel.git"
+  },
+  "homepage": "https://github.com/everydaydesign/datareader-excel#readme",
+  "bugs": "https://github.com/everydaydesign/datareader-excel/issues",
+  "scripts": {
+    "build": "tsup",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsup && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "exceljs": "4.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.2"
+  }
+}
