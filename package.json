@@ -1,6 +1,6 @@
 {
   "name": "datareader-excel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Correct, zero-dependency Excel .xlsx/.xlsm reader for the browser and Node.",
   "license": "MIT",
   "author": "everydaydesign",

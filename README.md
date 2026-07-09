@@ -12,21 +12,16 @@ browser and in Node. Because ZIP inflation is async, `readXlsx` returns a
 
 ## Why
 
-The de-facto Excel reader, ExcelJS, is a ~1 MB read+write+styling+charts
-library whose last release was October 2023 and last commit January 2025, and
-which now carries a cluster of unpatched transitive-dependency CVEs (minimatch,
-uuid, tmp, archiver/inflight). If all you need is to *read* the data out of a
-spreadsheet, that is a large, stalled dependency and a standing attack surface
-to take on.
-
-`datareader-excel` reads the data and nothing else. Zero runtime dependencies
-means no transitive-CVE class exists by construction; a hand-written ZIP +
-OOXML reader keeps it small and strictly read-only; it is TypeScript-native (no
-`@types/*` to chase); and it decodes Excel date serials to `Date` correctly —
-including the boundary cases ExcelJS gets wrong — so it drops straight into a
-data grid or a statistics pipeline. It deliberately targets the specific
-read-side defects in ExcelJS's stalled backlog (see
-[Better than ExcelJS](#better-than-exceljs)).
+Reading the data out of a spreadsheet shouldn't require a large
+read+write+styling+charts library, a tree of transitive dependencies, or a
+native addon. `datareader-excel` does one thing — read the values — with **zero
+runtime dependencies**, so no transitive-CVE surface exists by construction and
+there are no `@types/*` to chase. A hand-written ZIP + OOXML reader keeps it
+small and strictly read-only; it runs unchanged in the browser and in Node; and
+it decodes Excel date serials to `Date` correctly (the 1900 leap-year bug, the
+1904 epoch, UTC-consistent) — so it drops straight into a data grid or a
+statistics pipeline. See [Correctness](#correctness) for the specific behaviors
+it pins.
 
 ## Install
 
@@ -253,31 +248,27 @@ memory is tight.
 | Encoding     | UTF-8 via `TextDecoder`; non-Latin text (Hebrew/CJK/accents) reads correctly                |
 | Not covered  | writing, styling/fonts/colors, charts, images, comments, data validation, hyperlink targets, encrypted workbooks |
 
-## Better than ExcelJS
+## Correctness
 
-Read-side ExcelJS bugs cluster tightly, and `datareader-excel` was built to
-cover the cluster. Each row links a real (open, at time of writing) ExcelJS
-issue to how this reader behaves instead.
+`datareader-excel` pins the read-side behaviors that matter for getting data out
+of a spreadsheet intact:
 
-| Theme | ExcelJS issue(s) | `datareader-excel` |
-| --- | --- | --- |
-| **Dates** | #486 (timezone drift), #1928 (`1/1/1900` wrong), #2966 (date-formatted formula → `Invalid Date`) | Serial→`Date` per the OOXML spec (1900 leap-year bug, 1904 epoch, UTC-consistent), validated to **ground truth**, not to ExcelJS. |
-| **Opt-out date coercion** | #522 | `dates: false` returns the raw serial `number` instead of a `Date`. |
-| **Number stored as text** | #475, #1162 | A text-typed cell stays a `string` (the file's truth) — never mis-coerced to a number. |
-| **Rich-text read** | #2761 (leading run dropped) | Concatenate *all* `<r><t>` runs → the correct full string. |
-| **Merged cells** | #2729, #2640, #1567 | Parse `<mergeCells>`; value in the top-left cell (faithful), or `mergedCells: "fill"` across the range. |
-| **Cryptic errors on bad input** | pervasive | A clear `XlsxError` ("not a valid .xlsx", "encrypted workbooks are unsupported") instead of a ZIP stacktrace. |
-| **Transitive CVEs** | #3024, #3041, #3053, #2866, #2715 | **Zero dependencies** — a test asserts the package has no `dependencies`. No transitive-CVE class exists. |
-| **Read OOM on big files** | #2925, #412, #1842 | Read-only + byte-budgeted; the `maxCells`/`maxInflatedBytes` caps throw a **bounded, actionable** `XlsxError` (naming the option to raise) instead of a heap crash. |
-| **Crash on files missing optional parts** | #1329 | Graceful defaults (no `workbookPr` → 1900 system; no `styles`/`sharedStrings` → sensible) — reads files ExcelJS throws on. |
-| **Unicode cell values** | #1473, #995 (signal) | Shared/inline strings via `TextDecoder("utf-8")` — non-Latin text (Hebrew/CJK/accents) reads correctly. |
+| Behavior | What the reader does |
+| --- | --- |
+| **Dates** | Date-formatted serials → `Date` per the OOXML spec — the 1900 leap-year bug, the 1904 epoch, UTC-consistent — including the boundary cases naive readers get wrong. `dates: false` returns the raw serial `number` instead. |
+| **Number stored as text** | A text-typed cell stays a `string` (the file's truth) — never silently coerced to a number. |
+| **Rich text** | All `<r><t>` runs are concatenated to the full string; phonetic (`<rPh>`) runs are excluded so a value isn't merged with its reading. |
+| **Merged cells** | The value stays in the top-left cell (faithful), or `mergedCells: "fill"` copies it across the whole merge range. |
+| **Missing data** | Blank cells and error cells (`#N/A`, `#DIV/0!`, …) both → `null`, so missingness is uniform downstream. |
+| **Clear errors** | A malformed, encrypted, or oversized file throws a catchable `XlsxError` with a plain message, never a cryptic stacktrace. |
+| **Bounded memory** | Read-only and byte-budgeted; an oversized or zip-bomb file throws a bounded `XlsxError` (naming the option to raise) rather than exhausting the heap. |
+| **Resilient parsing** | Files missing optional parts (`workbookPr`, `styles`, `sharedStrings`) fall back to sensible defaults instead of throwing. |
+| **Unicode** | Shared/inline strings decode as UTF-8 — non-Latin text (Hebrew, CJK, accents) reads correctly. |
 
-**Date oracle caveat.** ExcelJS cannot be the oracle for dates — it *is* the
-buggy party. Structure (strings, numbers, booleans, layout, sheet order) is
-validated by an ExcelJS structural differential; **dates are validated to
-ground truth**: write a known date via ExcelJS, read the resulting serial, and
-assert we recover exactly that date via the spec-correct formula, including the
-boundary cases ExcelJS gets wrong.
+Every behavior above is covered by tests, and dates are validated to **ground
+truth** — write a known date, read the resulting serial, and assert the exact
+date is recovered via the spec-correct formula, including the tricky boundary
+cases.
 
 ### Researcher-critical guarantees
 
