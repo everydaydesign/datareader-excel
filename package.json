@@ -50,6 +50,6 @@
     "@types/bun": "^1.1.14",
     "exceljs": "4.4.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.7.2"
+    "typescript": "^7.0.2"
   }
 }
