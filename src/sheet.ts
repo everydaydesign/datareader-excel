@@ -46,7 +46,7 @@ function inlineText(node: XmlNode): string {
       continue;
     }
     // Push children in reverse so pop yields left-to-right document order.
-    for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]);
+    for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]!);
   }
   return out;
 }
@@ -85,7 +85,7 @@ function mergeRanges(sheet: XmlNode): MergeRange[] {
     const ref = mc.attrs.ref;
     if (!ref) continue;
     const [a, b] = ref.split(":");
-    if (!b) continue;
+    if (!a || !b) continue;
     ranges.push({ rA: rowIndex(a), cA: colIndex(a), rB: rowIndex(b), cB: colIndex(b) });
   }
   return ranges;
@@ -96,9 +96,9 @@ function applyMerges(grid: CellValue[][], merges: MergeRange[]): void {
   for (const m of merges) {
     const val = grid[m.rA]?.[m.cA] ?? null;
     for (let r = m.rA; r <= m.rB; r++) {
-      for (let c = m.cA; c <= m.cB; c++) {
-        if (grid[r]) grid[r][c] = val;
-      }
+      const gr = grid[r];
+      if (!gr) continue;
+      for (let c = m.cA; c <= m.cB; c++) gr[c] = val;
     }
   }
 }

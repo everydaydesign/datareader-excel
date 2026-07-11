@@ -16,7 +16,7 @@ function collectText(node: XmlNode): string {
       continue;
     }
     // Push children in reverse so pop yields left-to-right document order.
-    for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]);
+    for (let i = n.children.length - 1; i >= 0; i--) stack.push(n.children[i]!);
   }
   return out;
 }

@@ -28,7 +28,8 @@ function decodeEntities(s: string): string {
         ? String.fromCodePoint(code)
         : m;
     }
-    return body in ENTITIES ? ENTITIES[body] : m;
+    const ent = ENTITIES[body];
+    return ent === undefined ? m : ent;
   });
 }
 
@@ -64,7 +65,7 @@ export function parseXml(text: string): XmlNode {
     if (lt === -1) break;
     if (lt > i) {
       const chunk = text.slice(i, lt);
-      const top = stack[stack.length - 1];
+      const top = stack[stack.length - 1]!;
       top.text += decodeEntities(chunk);
     }
     if (text.startsWith("<?", lt)) {
@@ -80,7 +81,7 @@ export function parseXml(text: string): XmlNode {
     if (text.startsWith("<![CDATA[", lt)) {
       const end = text.indexOf("]]>", lt + 9);
       const stop = end === -1 ? n : end;
-      stack[stack.length - 1].text += text.slice(lt + 9, stop);
+      stack[stack.length - 1]!.text += text.slice(lt + 9, stop);
       i = end === -1 ? n : end + 3;
       continue;
     }
@@ -98,7 +99,7 @@ export function parseXml(text: string): XmlNode {
     const tag = local(sp === -1 ? inner : inner.slice(0, sp));
     const attrs = sp === -1 ? {} : parseAttrs(inner.slice(sp + 1));
     const node: XmlNode = { attrs, children: [], name: tag, text: "" };
-    stack[stack.length - 1].children.push(node);
+    stack[stack.length - 1]!.children.push(node);
     if (!selfClosing) stack.push(node);
     i = gt + 1;
   }
