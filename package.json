@@ -14,7 +14,8 @@
     }
   },
   "files": [
-    "dist",
+        "dist",
+        "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
@@ -44,7 +45,8 @@
     "build": "tsup",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "tsup && bun test"
+        "release": "npm version patch && git push --follow-tags",
+        "prepublishOnly": "tsup && bun test"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
