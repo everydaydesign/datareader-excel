@@ -16,7 +16,7 @@ describe("zero runtime dependencies", () => {
       const src = readFileSync(join(dir, f), "utf8");
       const imports = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
       for (const spec of imports) {
-        expect(spec.startsWith("./") || spec.startsWith("../")).toBe(true);
+        expect(spec!.startsWith("./") || spec!.startsWith("../")).toBe(true);
       }
     }
   });

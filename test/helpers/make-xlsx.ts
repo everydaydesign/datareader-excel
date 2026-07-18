@@ -2,8 +2,8 @@
 // descriptors. Enough to craft arbitrary .xlsx fixtures (1904, missing parts, custom XML).
 function crc32(bytes: Uint8Array): number {
   let c = ~0;
-  for (let i = 0; i < bytes.length; i++) {
-    c ^= bytes[i];
+  for (const byte of bytes) {
+    c ^= byte!;
     for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
   }
   return ~c >>> 0;
@@ -12,8 +12,8 @@ function crc32(bytes: Uint8Array): number {
 export function makeXlsx(entries: Record<string, string>): Uint8Array {
   const enc = new TextEncoder();
   const files = Object.entries(entries).map(([name, content]) => ({
-    name: enc.encode(name),
     data: enc.encode(content),
+    name: enc.encode(name),
   }));
   const locals: Uint8Array[] = [];
   const centrals: Uint8Array[] = [];

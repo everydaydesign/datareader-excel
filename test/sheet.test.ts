@@ -1,14 +1,14 @@
+import type { SheetCtx } from "../src/sheet";
 import { describe, expect, test } from "bun:test";
 import { colIndex, parseSheet } from "../src/sheet";
-import type { SheetCtx } from "../src/sheet";
 
 const ctx = (over: Partial<SheetCtx> = {}): SheetCtx => ({
-  sharedStrings: [],
-  dateStyles: new Set(),
   date1904: false,
   dates: true,
-  mergedCells: "topLeft",
+  dateStyles: new Set(),
   maxCells: 5_000_000,
+  mergedCells: "topLeft",
+  sharedStrings: [],
   ...over,
 });
 
@@ -38,10 +38,10 @@ describe("parseSheet", () => {
   test("a date-styled number decodes to a Date; dates:false keeps the serial", () => {
     const xml =
       '<worksheet><sheetData><row r="1"><c r="A1" s="1"><v>45657</v></c></row></sheetData></worksheet>';
-    const asDate = parseSheet(xml, ctx({ dateStyles: new Set([1]) }))[0][0];
+    const asDate = parseSheet(xml, ctx({ dateStyles: new Set([1]) }))[0]![0];
     expect(asDate instanceof Date).toBe(true);
     expect((asDate as Date).toISOString()).toBe("2024-12-31T00:00:00.000Z");
-    const raw = parseSheet(xml, ctx({ dateStyles: new Set([1]), dates: false }))[0][0];
+    const raw = parseSheet(xml, ctx({ dates: false, dateStyles: new Set([1]) }))[0]![0];
     expect(raw).toBe(45657);
   });
 
@@ -59,7 +59,7 @@ describe("parseSheet", () => {
       '<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData>' +
       '<mergeCells><mergeCell ref="A1:C1"/></mergeCells>' +
       "</worksheet>";
-    expect(parseSheet(xml, ctx({ sharedStrings: ["Region"], mergedCells: "fill" }))).toEqual([
+    expect(parseSheet(xml, ctx({ mergedCells: "fill", sharedStrings: ["Region"] }))).toEqual([
       ["Region", "Region", "Region"],
     ]);
     expect(parseSheet(xml, ctx({ sharedStrings: ["Region"] }))).toEqual([["Region", null, null]]);

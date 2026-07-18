@@ -5,15 +5,19 @@ import { XlsxError } from "./limits";
 import { parseXml } from "./xml";
 
 export type SheetCtx = {
-  sharedStrings: string[];
-  dateStyles: Set<number>;
   date1904: boolean;
   dates: boolean;
-  mergedCells: "topLeft" | "fill";
+  dateStyles: Set<number>;
   maxCells: number;
+  mergedCells: "topLeft" | "fill";
+  sharedStrings: string[];
 };
 
-type MergeRange = { rA: number; cA: number; rB: number; cB: number };
+type MergeRange = { cA: number; cB: number; rA: number; rB: number };
+
+type RowCells = { cells: CellValue[]; maxCol: number };
+
+type SparseRows = { maxCol: number; maxRow: number; rowsByIndex: CellValue[][] };
 
 /** Column letters of a cell ref (e.g. "AMJ12") → 0-based column index. */
 export function colIndex(ref: string): number {
@@ -51,6 +55,30 @@ function inlineText(node: XmlNode): string {
   return out;
 }
 
+/** Decode a numeric <c> (t absent or "n"): a date-styled serial becomes a Date unless dates are off. */
+function decodeNumeric(raw: string, c: XmlNode, ctx: SheetCtx): CellValue {
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return raw;
+  const styleIdx = Number(c.attrs.s ?? "0");
+  if (ctx.dateStyles.has(styleIdx)) {
+    return ctx.dates ? serialToDate(num, ctx.date1904) : num;
+  }
+  return num;
+}
+
+/** Decode a <c> that carries a <v> value: shared-string, "str", boolean, or numeric/date. */
+function decodeValueCell(c: XmlNode, v: XmlNode, ctx: SheetCtx): CellValue {
+  const t = c.attrs.t ?? "n";
+  const raw = v.text;
+  if (t === "s") {
+    const idx = Number(raw);
+    return ctx.sharedStrings[idx] ?? null;
+  }
+  if (t === "str") return raw;
+  if (t === "b") return raw === "1";
+  return decodeNumeric(raw, c, ctx);
+}
+
 /** Decode one <c> element to a CellValue. */
 function decodeCell(c: XmlNode, ctx: SheetCtx): CellValue {
   const t = c.attrs.t ?? "n";
@@ -61,20 +89,7 @@ function decodeCell(c: XmlNode, ctx: SheetCtx): CellValue {
   if (t === "e") return null;
   const v = c.children.find((n) => n.name === "v");
   if (!v) return null;
-  const raw = v.text;
-  if (t === "s") {
-    const idx = Number(raw);
-    return ctx.sharedStrings[idx] ?? null;
-  }
-  if (t === "str") return raw;
-  if (t === "b") return raw === "1";
-  const num = Number(raw);
-  if (!Number.isFinite(num)) return raw;
-  const styleIdx = Number(c.attrs.s ?? "0");
-  if (ctx.dateStyles.has(styleIdx)) {
-    return ctx.dates ? serialToDate(num, ctx.date1904) : num;
-  }
-  return num;
+  return decodeValueCell(c, v, ctx);
 }
 
 /** Parse <mergeCells> into 0-based inclusive ranges. */
@@ -86,7 +101,7 @@ function mergeRanges(sheet: XmlNode): MergeRange[] {
     if (!ref) continue;
     const [a, b] = ref.split(":");
     if (!a || !b) continue;
-    ranges.push({ rA: rowIndex(a), cA: colIndex(a), rB: rowIndex(b), cB: colIndex(b) });
+    ranges.push({ cA: colIndex(a), cB: colIndex(b), rA: rowIndex(a), rB: rowIndex(b) });
   }
   return ranges;
 }
@@ -103,48 +118,95 @@ function applyMerges(grid: CellValue[][], merges: MergeRange[]): void {
   }
 }
 
-/** Parse a worksheet XML into a dense, row-major CellValue grid. */
-export function parseSheet(xml: string, ctx: SheetCtx): CellValue[][] {
-  const sheet = parseXml(xml);
+/** Row digits of a cell ref, defaulting to the next sequential row when the `r` attr is absent. */
+function rowIndexOf(row: XmlNode, nextDefault: number): number {
+  return (Number(row.attrs.r) || nextDefault) - 1;
+}
+
+/** Decode one <row>'s <c> children into a column-indexed sparse cell array + its column extent. A
+ * cell with no `r` follows the previous one (ECMA-376: an omitted ref means the next column, mirroring
+ * the sequential row default) instead of all collapsing onto column 0; a PRESENT ref that doesn't
+ * parse to a valid column (e.g. lowercase "a1" → -1) is a malformed file, so it throws rather than
+ * silently discarding the value at `cells[-1]`. */
+function readRowCells(row: XmlNode, ctx: SheetCtx): RowCells {
+  const cells: CellValue[] = [];
+  let maxCol = 0;
+  let nextCol = 0;
+  for (const c of row.children) {
+    if (c.name !== "c") continue;
+    let ci = nextCol;
+    if (c.attrs.r !== undefined) {
+      ci = colIndex(c.attrs.r);
+      if (ci < 0) throw new XlsxError(`malformed cell reference "${c.attrs.r}"`);
+    }
+    cells[ci] = decodeCell(c, ctx);
+    nextCol = ci + 1;
+    if (ci + 1 > maxCol) maxCol = ci + 1;
+  }
+  return { cells, maxCol };
+}
+
+/** Walk <sheetData> into row-indexed sparse cells, tracking the maximum row/column seen. */
+function readSparseRows(sheet: XmlNode, ctx: SheetCtx): SparseRows {
   const sheetData = sheet.children.find((n) => n.name === "sheetData");
   const rowsByIndex: CellValue[][] = [];
   let maxCol = 0;
   let maxRow = 0;
   for (const row of sheetData?.children ?? []) {
     if (row.name !== "row") continue;
-    const rIdx = (Number(row.attrs.r) || rowsByIndex.length + 1) - 1;
-    const cells: CellValue[] = [];
-    for (const c of row.children) {
-      if (c.name !== "c") continue;
-      const ci = colIndex(c.attrs.r ?? "A");
-      cells[ci] = decodeCell(c, ctx);
-      if (ci + 1 > maxCol) maxCol = ci + 1;
-    }
+    const rIdx = rowIndexOf(row, rowsByIndex.length + 1);
+    const { cells, maxCol: rowMaxCol } = readRowCells(row, ctx);
+    if (rowMaxCol > maxCol) maxCol = rowMaxCol;
     rowsByIndex[rIdx] = cells;
     if (rIdx + 1 > maxRow) maxRow = rIdx + 1;
   }
+  return { maxCol, maxRow, rowsByIndex };
+}
+
+/** Extend the (row, column) extent so a merge over otherwise-empty cells still materializes them. */
+function mergedExtent(
+  merges: MergeRange[],
+  maxRow: number,
+  maxCol: number,
+): { cols: number; rows: number } {
+  let rows = maxRow;
+  let cols = maxCol;
+  for (const m of merges) {
+    if (m.rB + 1 > rows) rows = m.rB + 1;
+    if (m.cB + 1 > cols) cols = m.cB + 1;
+  }
+  return { cols, rows };
+}
+
+/** Materialize the sparse rows into a dense `rows × cols` grid, filling gaps with null. */
+function densify(rowsByIndex: CellValue[][], rows: number, cols: number): CellValue[][] {
+  const grid: CellValue[][] = [];
+  for (let r = 0; r < rows; r++) {
+    const src = rowsByIndex[r] ?? [];
+    const dense: CellValue[] = [];
+    for (let c = 0; c < cols; c++) dense[c] = src[c] ?? null;
+    grid[r] = dense;
+  }
+  return grid;
+}
+
+/** Parse a worksheet XML into a dense, row-major CellValue grid. */
+export function parseSheet(xml: string, ctx: SheetCtx): CellValue[][] {
+  const sheet = parseXml(xml);
+  const { maxCol, maxRow, rowsByIndex } = readSparseRows(sheet, ctx);
   // A merge over otherwise-empty cells (e.g. B1:C1) makes those columns/rows exist, so it must
   // extend the grid extent even in "topLeft" mode — else the null "others" would be dropped.
   const merges = mergeRanges(sheet);
-  for (const m of merges) {
-    if (m.rB + 1 > maxRow) maxRow = m.rB + 1;
-    if (m.cB + 1 > maxCol) maxCol = m.cB + 1;
-  }
+  const { cols, rows } = mergedExtent(merges, maxRow, maxCol);
   // Bound the extent BEFORE materializing the dense grid — maxRow/maxCol come from attacker-
   // controlled cell/merge refs, so a tiny file (e.g. <c r="A2000000000">) could otherwise OOM
   // allocating billions of slots before reader.ts's post-parse cumulative check runs.
-  if (maxRow * maxCol > ctx.maxCells) {
+  if (rows * cols > ctx.maxCells) {
     throw new XlsxError(
-      `sheet extent ${maxRow}×${maxCol} exceeds the ${ctx.maxCells}-cell limit — pass a larger maxCells to raise it`,
+      `sheet extent ${rows}×${cols} exceeds the ${ctx.maxCells}-cell limit — pass a larger maxCells to raise it`,
     );
   }
-  const grid: CellValue[][] = [];
-  for (let r = 0; r < maxRow; r++) {
-    const src = rowsByIndex[r] ?? [];
-    const dense: CellValue[] = [];
-    for (let c = 0; c < maxCol; c++) dense[c] = src[c] ?? null;
-    grid[r] = dense;
-  }
+  const grid = densify(rowsByIndex, rows, cols);
   if (ctx.mergedCells === "fill") applyMerges(grid, merges);
   return grid;
 }

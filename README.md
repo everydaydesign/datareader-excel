@@ -232,6 +232,16 @@ The default ceilings `readXlsx` uses when you pass no `maxCells` /
 `maxInflatedBytes`. No real spreadsheet is affected; pass stricter values where
 memory is tight.
 
+**What each bounds — and what it doesn't.** Neither ceiling bounds peak _heap_
+directly. `maxInflatedBytes` caps the cumulative _inflated_ part bytes (the
+zip-bomb guard); each XML part is then parsed into a node tree that measures
+~13× its text size, and that tree is built _before_ `maxCells` applies — so a
+512 MiB inflate ceiling can still drive several GB of heap on a pathological
+part. `maxCells` bounds the materialized grid _after_ parsing (it protects
+whatever consumes the grid, not the parse itself). If you read untrusted files
+in a memory-constrained context, lower `maxInflatedBytes` accordingly — a
+streaming parser (the real fix) is not built yet.
+
 ## Format coverage
 
 | Area         | Handled                                                                                     |

@@ -18,8 +18,8 @@ function relMap(relsXml: string | undefined): Map<string, string> {
  * workbookPr are tolerated with sensible fallbacks (#1329). */
 export function parseWorkbook(
   wbXml: string,
-  relsXml: string | undefined,
-): { sheets: { name: string; path: string }[]; date1904: boolean } {
+  relsXml?: string,
+): { date1904: boolean; sheets: { name: string; path: string }[] } {
   const root = parseXml(wbXml);
   const rels = relMap(relsXml);
   let date1904 = false;
@@ -38,5 +38,5 @@ export function parseWorkbook(
       });
     }
   }
-  return { sheets, date1904 };
+  return { date1904, sheets };
 }

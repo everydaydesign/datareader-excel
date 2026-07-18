@@ -25,7 +25,6 @@ describe("parseWorkbook", () => {
   test("tolerates missing rels + workbookPr (ExcelJS #1329)", () => {
     const wb = parseWorkbook(
       '<workbook><sheets><sheet name="Only" r:id="rId1"/></sheets></workbook>',
-      undefined,
     );
     expect(wb.date1904).toBe(false);
     expect(wb.sheets).toEqual([{ name: "Only", path: "xl/worksheets/sheet1.xml" }]);

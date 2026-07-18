@@ -1,19 +1,27 @@
+import type { CellValue } from "../src/index";
 import { describe, expect, test } from "bun:test";
 import ExcelJS from "exceljs";
-import type { CellValue } from "../src/index";
 import { readXlsx } from "../src/index";
+
+function isPrimitiveCell(v: unknown): v is boolean | number | string {
+  return typeof v === "number" || typeof v === "string" || typeof v === "boolean";
+}
+
+/** Normalize an ExcelJS object cell (formula result / hyperlink text / richText runs). */
+function normalizeObject(v: object): CellValue {
+  if ("result" in v) return normalize(v.result);
+  if ("text" in v && typeof v.text === "string") return v.text;
+  if ("richText" in v && Array.isArray(v.richText))
+    return v.richText.map((r: { text?: string }) => r.text ?? "").join("");
+  return null;
+}
 
 /** ExcelJS cell value → our CellValue (normalizing formula/richText/hyperlink; dates excluded here). */
 function normalize(v: unknown): CellValue {
   if (v === null || v === undefined) return null;
-  if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v;
+  if (isPrimitiveCell(v)) return v;
   if (v instanceof Date) return v;
-  if (typeof v === "object") {
-    if ("result" in v) return normalize(v.result);
-    if ("text" in v && typeof v.text === "string") return v.text;
-    if ("richText" in v && Array.isArray(v.richText))
-      return v.richText.map((r: { text?: string }) => r.text ?? "").join("");
-  }
+  if (typeof v === "object") return normalizeObject(v);
   return null;
 }
 
@@ -51,7 +59,7 @@ describe("differential vs ExcelJS (structure)", () => {
       const ours = await readXlsx(buf);
       expect(ours.sheets.length).toEqual(wb.worksheets.length);
       wb.eachSheet((ws, si) => {
-        const sheet = ours.sheets[si - 1];
+        const sheet = ours.sheets[si - 1]!;
         ws.eachRow({ includeEmpty: true }, (row, rn) => {
           for (let c = 1; c <= (sheet.rows[0]?.length ?? 0); c++) {
             expect(sheet.rows[rn - 1]?.[c - 1] ?? null).toEqual(normalize(row.getCell(c).value));

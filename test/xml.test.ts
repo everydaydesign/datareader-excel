@@ -7,7 +7,7 @@ describe("parseXml", () => {
     expect(root.name).toBe("a");
     expect(root.attrs.x).toBe("1");
     expect(root.children.map((n) => n.name)).toEqual(["b", "c"]);
-    expect(root.children[0].text).toBe("hi");
+    expect(root.children[0]!.text).toBe("hi");
   });
   test("decodes entities in text and attributes", () => {
     const root = parseXml('<t a="x &amp; y">1 &lt; 2 &#65; &#x42;</t>');
@@ -23,7 +23,7 @@ describe("parseXml", () => {
   test("ignores the XML declaration and comments", () => {
     const root = parseXml('<?xml version="1.0"?><!-- c --><r><v>5</v></r>');
     expect(root.name).toBe("r");
-    expect(root.children[0].text).toBe("5");
+    expect(root.children[0]!.text).toBe("5");
   });
   test("preserves significant whitespace in text", () => {
     const root = parseXml('<t xml:space="preserve"> a </t>');

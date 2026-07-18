@@ -5,6 +5,8 @@ export type XmlNode = {
   text: string;
 };
 
+type ParseCursor = { n: number; stack: XmlNode[]; text: string };
+
 const ENTITIES: Record<string, string> = {
   amp: "&",
   apos: "'",
@@ -13,21 +15,22 @@ const ENTITIES: Record<string, string> = {
   quot: '"',
 };
 
+/** Decode a numeric character reference body (`#dec` or `#xhex`), falling back to `fallback` when the
+ * code point is out of U+0000..U+10FFFF — String.fromCodePoint throws a RangeError past it (e.g.
+ * &#x110000;), so a hostile entity must never crash the parser. */
+function decodeNumericEntity(body: string, fallback: string): string {
+  const code =
+    body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+  return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+    ? String.fromCodePoint(code)
+    : fallback;
+}
+
 /** Decode XML entities (&amp; &lt; &gt; &quot; &apos; and numeric &#dec; / &#xhex;). */
 function decodeEntities(s: string): string {
   if (!s.includes("&")) return s;
   return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, body: string) => {
-    if (body[0] === "#") {
-      const code =
-        body[1] === "x" || body[1] === "X"
-          ? parseInt(body.slice(2), 16)
-          : parseInt(body.slice(1), 10);
-      // String.fromCodePoint throws RangeError outside U+0000..U+10FFFF (e.g. &#x110000;); guard the
-      // range and fall back to the literal so a hostile entity never crashes the parser.
-      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
-        ? String.fromCodePoint(code)
-        : m;
-    }
+    if (body[0] === "#") return decodeNumericEntity(body, m);
     const ent = ENTITIES[body];
     return ent === undefined ? m : ent;
   });
@@ -52,55 +55,92 @@ function parseAttrs(src: string): Record<string, string> {
   return attrs;
 }
 
+/** Append decoded character data to the element currently on top of the stack. */
+function appendText(stack: XmlNode[], chunk: string): void {
+  stack[stack.length - 1]!.text += decodeEntities(chunk);
+}
+
+/** Index just past the next `close` delimiter at/after `from`, or the end of input if it's absent. */
+function endAfter(cursor: ParseCursor, from: number, close: string): number {
+  const j = cursor.text.indexOf(close, from);
+  return j === -1 ? cursor.n : j + close.length;
+}
+
+/** Consume a <![CDATA[…]]> block: keep its inner text on the stack top, return the index past it. */
+function consumeCData(cursor: ParseCursor, lt: number): number {
+  const { n, stack, text } = cursor;
+  const end = text.indexOf("]]>", lt + 9);
+  const stop = end === -1 ? n : end;
+  stack[stack.length - 1]!.text += text.slice(lt + 9, stop);
+  return end === -1 ? n : end + 3;
+}
+
+/** Skip a `<!…>` declaration (DOCTYPE/ENTITY/…), starting at `lt`. A DOCTYPE's internal subset
+ * `[ … ]` may itself contain `>`, so when a `[` opens before the next `>`, close past its `]` first.
+ * Without this, `<!DOCTYPE sst>` parses as an element and becomes the document root, silently zeroing
+ * every string/style/cell in the part (some third-party generators emit a DOCTYPE — it's legal XML). */
+function skipDeclaration(cursor: ParseCursor, lt: number): number {
+  const { text } = cursor;
+  const gt = text.indexOf(">", lt);
+  const bracket = text.indexOf("[", lt);
+  if (bracket !== -1 && (gt === -1 || bracket < gt)) {
+    const close = text.indexOf("]", bracket);
+    return endAfter(cursor, close === -1 ? lt + 2 : close, ">");
+  }
+  return endAfter(cursor, lt + 2, ">");
+}
+
+/** Skip a non-element construct at `lt` (<?…?>, <!--…-->, <![CDATA[…]]>, <!DOCTYPE …>) and return the
+ * next index, or null when `lt` begins an ordinary element tag. */
+function skipSpecial(cursor: ParseCursor, lt: number): number | null {
+  const { text } = cursor;
+  if (text.startsWith("<?", lt)) return endAfter(cursor, lt + 2, "?>");
+  if (text.startsWith("<!--", lt)) return endAfter(cursor, lt + 4, "-->");
+  if (text.startsWith("<![CDATA[", lt)) return consumeCData(cursor, lt);
+  if (text.startsWith("<!", lt)) return skipDeclaration(cursor, lt);
+  return null;
+}
+
+/** Handle one element tag spanning `lt`..`gt`: pop on a close tag, else push a new node (unless
+ * self-closing) carrying its decoded attributes. */
+function processTag(cursor: ParseCursor, lt: number, gt: number): void {
+  const { stack, text } = cursor;
+  const raw = text.slice(lt + 1, gt);
+  if (raw[0] === "/") {
+    if (stack.length > 1) stack.pop();
+    return;
+  }
+  const selfClosing = raw.endsWith("/");
+  const inner = selfClosing ? raw.slice(0, -1) : raw;
+  const sp = inner.search(/\s/);
+  const tag = local(sp === -1 ? inner : inner.slice(0, sp));
+  const attrs = sp === -1 ? {} : parseAttrs(inner.slice(sp + 1));
+  const node: XmlNode = { attrs, children: [], name: tag, text: "" };
+  stack[stack.length - 1]!.children.push(node);
+  if (!selfClosing) stack.push(node);
+}
+
 /** A scoped XML parser for well-formed OOXML — not a general engine. Builds an element tree with
  * decoded text/attributes and namespace prefixes stripped. Ignores <?…?>, comments, and CDATA fences
  * (their inner text is kept). */
 export function parseXml(text: string): XmlNode {
   const root: XmlNode = { attrs: {}, children: [], name: "", text: "" };
   const stack: XmlNode[] = [root];
-  let i = 0;
   const n = text.length;
+  const cursor: ParseCursor = { n, stack, text };
+  let i = 0;
   while (i < n) {
     const lt = text.indexOf("<", i);
     if (lt === -1) break;
-    if (lt > i) {
-      const chunk = text.slice(i, lt);
-      const top = stack[stack.length - 1]!;
-      top.text += decodeEntities(chunk);
-    }
-    if (text.startsWith("<?", lt)) {
-      i = text.indexOf("?>", lt + 2);
-      i = i === -1 ? n : i + 2;
-      continue;
-    }
-    if (text.startsWith("<!--", lt)) {
-      i = text.indexOf("-->", lt + 4);
-      i = i === -1 ? n : i + 3;
-      continue;
-    }
-    if (text.startsWith("<![CDATA[", lt)) {
-      const end = text.indexOf("]]>", lt + 9);
-      const stop = end === -1 ? n : end;
-      stack[stack.length - 1]!.text += text.slice(lt + 9, stop);
-      i = end === -1 ? n : end + 3;
+    if (lt > i) appendText(stack, text.slice(i, lt));
+    const skipped = skipSpecial(cursor, lt);
+    if (skipped !== null) {
+      i = skipped;
       continue;
     }
     const gt = text.indexOf(">", lt);
     if (gt === -1) break;
-    const raw = text.slice(lt + 1, gt);
-    if (raw[0] === "/") {
-      if (stack.length > 1) stack.pop();
-      i = gt + 1;
-      continue;
-    }
-    const selfClosing = raw.endsWith("/");
-    const inner = selfClosing ? raw.slice(0, -1) : raw;
-    const sp = inner.search(/\s/);
-    const tag = local(sp === -1 ? inner : inner.slice(0, sp));
-    const attrs = sp === -1 ? {} : parseAttrs(inner.slice(sp + 1));
-    const node: XmlNode = { attrs, children: [], name: tag, text: "" };
-    stack[stack.length - 1]!.children.push(node);
-    if (!selfClosing) stack.push(node);
+    processTag(cursor, lt, gt);
     i = gt + 1;
   }
   return root.children[0] ?? root;

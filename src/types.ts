@@ -5,13 +5,13 @@ export type CellValue = string | number | boolean | Date | null;
 export type XlsxOptions = {
   /** Decode date-formatted serial numbers to Date. false → keep the raw serial number. Default true. */
   dates?: boolean;
-  /** "topLeft": merged value only in the top-left cell (faithful). "fill": propagate across the
-   *  merge range. Default "topLeft". */
-  mergedCells?: "topLeft" | "fill";
   /** ncells (rows × cols, summed across sheets) ceiling → XlsxError. Default 5,000,000. */
   maxCells?: number;
   /** Cumulative ZIP-inflate output ceiling in bytes → XlsxError. Default 512 MiB. */
   maxInflatedBytes?: number;
+  /** "topLeft": merged value only in the top-left cell (faithful). "fill": propagate across the
+   *  merge range. Default "topLeft". */
+  mergedCells?: "topLeft" | "fill";
 };
 
 /** One worksheet as a dense, row-major grid. */

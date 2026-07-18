@@ -7,9 +7,9 @@ const SHEET = (rows: string) => `<worksheet><sheetData>${rows}</sheetData></work
 const wbParts = (sheetXml: string) =>
   makeXlsx({
     "[Content_Types].xml": "<Types/>",
-    "xl/workbook.xml": '<workbook><sheets><sheet name="S" r:id="rId1"/></sheets></workbook>',
     "xl/_rels/workbook.xml.rels":
       '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    "xl/workbook.xml": '<workbook><sheets><sheet name="S" r:id="rId1"/></sheets></workbook>',
     "xl/worksheets/sheet1.xml": sheetXml,
   });
 

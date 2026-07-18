@@ -17,8 +17,8 @@ describe("readXlsx", () => {
     });
     const { sheets } = await readXlsx(buf);
     expect(sheets).toHaveLength(1);
-    expect(sheets[0].name).toBe("Data");
-    expect(sheets[0].rows).toEqual([
+    expect(sheets[0]!.name).toBe("Data");
+    expect(sheets[0]!.rows).toEqual([
       ["a", "b"],
       [1, 2],
     ]);
@@ -38,8 +38,8 @@ describe("readXlsx", () => {
       wb.addWorksheet("D").addRow([new Date(Date.UTC(2024, 8, 13)), 5]);
     });
     const { sheets } = await readXlsx(buf);
-    expect(sheets[0].rows[0][0] instanceof Date).toBe(true);
-    expect(sheets[0].rows[0][1]).toBe(5);
+    expect(sheets[0]!.rows[0]![0] instanceof Date).toBe(true);
+    expect(sheets[0]!.rows[0]![1]).toBe(5);
   });
 
   test("rejects a non-xlsx input with XlsxError", async () => {
